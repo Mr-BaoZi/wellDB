@@ -7,13 +7,14 @@ CFileBase::CFileBase()
 CFileBase::~CFileBase()
 {     }
 bool CFileBase::Open(const char* cFilePath)
-{     }
+{    return true;    }
 off_t CFileBase::Seek( off_t nOffset , int nFromWhere )
-{     }
+{    return 0;  }
 size_t CFileBase::Write( const void *pvBuf , size_t nCount )
-{     }
+{   return 0;   }
 size_t CFileBase::Read(void *pvBuf, size_t nCount)
-{     }
+{   return 0;   }
+
 
 
 CFdFile::CFdFile()
@@ -62,19 +63,21 @@ CStdFile::~CStdFile()
 
 bool CStdFile::Open(const char* cFilePath)
 {
-      m_f = fopen(cFilePath , "wt+" );
+      m_f = fopen (cFilePath ,"rb+" );
+      if(m_f == NULL)
+            m_f = fopen (cFilePath , "wb+" );
       if( m_f == NULL  ) return false;
       return true;
 }
 
 size_t CStdFile::Read(void *pvBuf, size_t nCount)
 {
-      return fread( pvBuf, nCount ,1, m_f);
+      return nCount*fread( pvBuf, nCount ,1, m_f);
 }
 
 size_t CStdFile::Write( const void *pvBuf , size_t nCount )
 {
-      return  fwrite(pvBuf, nCount , 1 ,m_f);
+      return  nCount*fwrite(pvBuf, nCount , 1 ,m_f);
 }
 
 off_t CStdFile::Seek(off_t nOffset , int nFromWhere)
@@ -82,6 +85,7 @@ off_t CStdFile::Seek(off_t nOffset , int nFromWhere)
       return fseek(m_f , nOffset, nFromWhere);
 }
 
+/*
 CCppFile::CCppFile()
 {
 
@@ -104,7 +108,9 @@ bool CCppFile::Open(const char* cFilePath)
 size_t CCppFile::Read(void *pvBuf, size_t nCount)
 {
      m_f.read((char *)pvBuf , nCount);
-     return m_f.gcount();
+     size_t n = m_f.gcount();
+     printf("read = %d\n" , n);
+     return n;
 }
 
 size_t CCppFile::Write( const void *pvBuf , size_t nCount )
@@ -131,7 +137,8 @@ off_t CCppFile::Seek(off_t nOffset , int nFromWhere)
       m_f.seekp(nOffset ,nWherece);
       m_f.seekg(nOffset ,nWherece);
       return m_f.tellg();
-
 }
+*/
+
 
 }

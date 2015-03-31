@@ -3,53 +3,35 @@
 namespace wellDB
 {
 
-CBtree::CBtree( const char* cPath  )
-{
-      //ctor
-      m_fdBTreeFile = open(cPath,O_RDWR |O_CREAT,0666 );
-      m_pHeader = (BTREE_HEADER *)malloc(nSIZEOF_BTREE_HEADER);
-      //if file is fake
-      if ( nSIZEOF_BTREE_HEADER != read(m_fdBTreeFile, m_pHeader,nSIZEOF_BTREE_HEADER ) &&
-      m_pHeader ->nMagicNum != nMAGIC_NUM )
-      {
-            //clean the fake file
-            lseek(m_fdBTreeFile, 0 , SEEK_SET);
-            ftruncate( m_fdBTreeFile , 0 );
-            //write default header
-            write(m_fdBTreeFile,&DEFAULT_BTREE_HEADER, nSIZEOF_BTREE_HEADER);
-            //write default root node
-            write(m_fdBTreeFile,&DEFAULT_ROOT_NODE,nSIZEOF_BTREE_NODE );
-            for( size_t i = 0; i < DEFAULT_BTREE_HEADER.nOrderNum ; i++ )
-            {
-                  write( m_fdBTreeFile ,&DEFAULT_POS_AND_KEY ,nSIZEOF_POS_AND_KEY );
-            }
-            fsync(m_fdBTreeFile);
-            memcpy(m_pHeader, &DEFAULT_BTREE_HEADER ,nSIZEOF_BTREE_HEADER );
-      }
-      size_t nNodeByte = SizeofBTreeNode();
-      m_pRootNode = (BTREE_NODE* )malloc( nNodeByte );
-      lseek(m_fdBTreeFile , nSIZEOF_BTREE_HEADER,SEEK_SET);
-      read(m_fdBTreeFile, m_pRootNode,nNodeByte );
+tag_BTREE_HEADER::tag_BTREE_HEADER():
+nMagicNum(nMAGIC_NUM) , nOrderNum(nORDER_NUM)   ,nKeyNum (0) , nNodeNum(1)   ,  nHeight(1),
+nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nDEFAULT_POS),
+nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
 
-      for (  size_t i = 0 ; i< nNODE_BUFFER ; i++)
-            m_pNodeBuffer[i] =  (BTREE_NODE* )malloc( nNodeByte );
+tag_BTREE_HEADER::tag_BTREE_HEADER(size_t nOrder):
+nMagicNum(nMAGIC_NUM) , nOrderNum(nOrder)   ,nKeyNum (0) , nNodeNum(1)   ,  nHeight(1),
+nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nDEFAULT_POS),
+nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
+
+
+tag_BTREE_NODE::tag_BTREE_NODE(BTREE_NODE_TYPE eType ,  size_t nBusy , size_t nIdle , off_t nSelf , off_t nNext  ):
+eNodeType(eType) , nBusyKey(nBusy) , nIdleKey(nIdle) , nSelfPos(nSelf) , nNextPos(nNext)  {     }
+
+CBtree::CBtree():m_pFileOp(NULL)
+{
+
 }
 
 CBtree::~CBtree()
 {
       //dtor
-      close(m_fdBTreeFile);
+      if(m_pFileOp)
+            delete m_pFileOp;
 
-      if( m_pHeader )
-            free(m_pHeader);
-
-      if(m_pRootNode)
-            free(m_pRootNode);
-
-      for (  size_t i = 0 ; i< nNODE_BUFFER ; i++)
+      for (  size_t i = 0 ; i < m_vcNodeBuffer.size() ; i++)
       {
-            if( m_pNodeBuffer[i]  )
-                  free(m_pNodeBuffer[i] );
+            if( m_vcNodeBuffer[i]  )
+                  free(m_vcNodeBuffer[i] );
       }
 }
 
@@ -58,12 +40,91 @@ CBtree::CBtree(const CBtree& other)
       //copy ctor
 }
 
+bool CBtree::Init( const char* cPath , CFileBase* pFileOp , size_t nOrderNum)
+{
+      if ( !( m_pFileOp = pFileOp) ) return false;
+      if ( !m_pFileOp->Open(cPath) )  return false;
+
+      if( m_pFileOp->Read( &m_bhHeader ,nSIZEOF_BTREE_HEADER) < nSIZEOF_BTREE_HEADER )
+      {
+            __InitHeader(nOrderNum);
+            __ShowHeader();
+      }
+
+      if( m_bhHeader.nMagicNum != nMAGIC_NUM )  return false;
+
+      __InitNodeBuffer();
+      __ShowNode(m_vcNodeBuffer[0]);
+      return true;
+}
+
+void CBtree::__InitHeader(size_t nOrderNum)
+{
+      //file is too short
+      BTREE_HEADER tempDefaultHeader(nOrderNum);
+      BTREE_NODE tempFirstNode( LEAF , 0 , nOrderNum ,nSIZEOF_BTREE_HEADER , nDEFAULT_POS  ) ;
+      POS_AND_KEY tempPAK;
+
+      m_pFileOp ->Seek( 0 ,SEEK_SET);
+      //Init header
+      m_pFileOp ->Write( &tempDefaultHeader, nSIZEOF_BTREE_HEADER );
+      memcpy( &m_bhHeader , &tempDefaultHeader , nSIZEOF_BTREE_HEADER);
+      //init firstNode
+      m_pFileOp ->Write( &tempFirstNode, nSIZEOF_BTREE_NODE);
+
+      for( size_t i = 0 ; i < nOrderNum ; i++ )
+            m_pFileOp->Write( &tempPAK, nSIZEOF_POS_AND_KEY );
+}
+
+void CBtree::__InitNodeBuffer()
+{
+      size_t nNodeByte = SizeofBTreeNode();
+      for( size_t i = 0 ; i < m_bhHeader.nHeight ; i++ )
+      {
+            BTREE_NODE* temp = (BTREE_NODE* )malloc(nNodeByte);
+            m_vcNodeBuffer.push_back(temp);
+            //read  data of every level in buffer
+            off_t nDataPos = nDEFAULT_POS;
+
+            if( i == 0 )
+                  nDataPos = m_bhHeader.nRootPos;
+            else
+                  nDataPos = m_vcNodeBuffer[i-1]->gPosAndKey[0].nPos;
+
+            m_pFileOp->Seek(nDataPos, SEEK_SET);
+            m_pFileOp->Read( m_vcNodeBuffer[i], nNodeByte );
+      }
+}
+
+void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)
+{
+      BTREE_NODE* p = pBtreeNode;
+      printf("node:\n");
+      printf("busy = %d idle = %d selfPos = %d nextPos = %d \n",p->nBusyKey,p->nIdleKey, p->nSelfPos,p->nNextPos);
+      for ( size_t i = 0 ; i < p->nBusyKey ; i++ )
+      {
+            printf("%d:  key = %d  pos = %d \n" ,  i ,p->gPosAndKey[i].kKey , p->gPosAndKey[i].nPos );
+      }
+
+}
+
+void CBtree::__ShowHeader()
+{
+      BTREE_HEADER *p = &m_bhHeader;
+      printf("header: \n");
+      printf("oder = %d key = %d node = %d height = %d rootPos = %d startLeafPos = %d\n" , p->nOrderNum , p->nKeyNum ,p->nNodeNum , p->nHeight , p->nRootPos ,p->nStartLeafPos);
+}
+
+
+/*
 CBtree& CBtree::operator=(const CBtree& rhs)
 {
       if (this == &rhs) return *this; // handle self assignment
       //assignment operator
       return *this;
 }
+
+
 
 bool  CBtree::__SplitNode( BTREE_NODE* pParentNode, BTREE_NODE* pChildNode ,KEY_TYPE kKey)
 {
@@ -145,13 +206,13 @@ bool CBtree::__LeftRotate( POS_AND_KEY* pArray, size_t nArrayLen,  size_t nRotat
 
 bool  CBtree::__WriteHeader()
 {
-/*
+
       if( !m_pHeader) return false;
       lseek(m_fdBTreeFile,0,SEEK_SET);
       write(m_fdBTreeFile,m_pHeader,nSIZEOF_BTREE_HEADER);
       fsync(m_fdBTreeFile);
       return true;
-      */
+
 }
 
 bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )const
@@ -165,6 +226,7 @@ bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )const
       return true;
 }
 
+
 bool CBtree::__ReadNode( BTREE_NODE* pNodeToWrite , off_t nPos )
 {
       if(!pNodeToWrite) return false;
@@ -174,8 +236,9 @@ bool CBtree::__ReadNode( BTREE_NODE* pNodeToWrite , off_t nPos )
 
       if( pNodeToWrite->nSelfPos != nPos) return false;
       return true;
-}
+}*/
 
+/*
 bool CBtree::__SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey ,size_t &nIndex ,off_t &nPos )const
 {
       if(!pNodeToSearch) return false;
@@ -274,7 +337,9 @@ bool CBtree::__InsertNodeNonFull(BTREE_NODE* pBtreeNode[] , size_t nArray,  POS_
       __ShowNode(pBtreeNode[0]);
       return true;
 }
+*/
 
+/*
 bool CBtree::Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
 {
       memcpy(m_pNodeBuffer[0], m_pRootNode , SizeofBTreeNode());
@@ -306,8 +371,9 @@ bool CBtree::Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
       {
             return  __InsertNodeNonFull(m_pNodeBuffer,nNODE_BUFFER,pPosAndKeyToInsert);
       }
-}
+}*/
 
+/*
 void CBtree::Show()
 {
       BTREE_NODE *temp = ( BTREE_NODE *)malloc(SizeofBTreeNode());
@@ -333,25 +399,8 @@ void CBtree::Show()
       free(temp);
 }
 
-void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)
-{
-/*
-      BTREE_NODE* p = pBtreeNode;
-      printf("busy = %d idle = %d selfPos = %d nextPos = %d \n",p->nBusyKey,p->nIdleKey, p->nSelfPos,p->nNextPos);
-      for ( size_t i = 0 ; i < p->nBusyKey ; i++ )
-      {
-            printf("%d:  key = %d  pos = %d \n" ,  i ,p->gPosAndKey[i].nKey , p->gPosAndKey[i].nPos );
-      }
 */
-}
 
-void CBtree::__ShowHeader()
-{
-/*
-      BTREE_HEADER *p = m_pHeader;
-      printf("header: \n");
-      printf("keyNum = %d nodeNum = %d height = %d rootPos = %d startLeafPos = %d\n" ,p->nKeyNum ,p->nNodeNum , p->nHeight , p->nRootPos ,p->nStartLeafPos);
-*/
-}
+
 
 }

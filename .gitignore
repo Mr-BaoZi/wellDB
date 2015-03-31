@@ -39,3 +39,6 @@
 #~file
 *~
 
+#b-tree file 
+*.br
+
