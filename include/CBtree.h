@@ -94,12 +94,10 @@ class CBtree
             CBtree( );
             ~CBtree();
             bool Init(const char* cPath , CFileBase* pFileOp = new CStdFile() , size_t nOrderNum = nORDER_NUM);
-            //bool Insert( const POS_AND_KEY &pPosAndKeyToInsert  );
-            size_t SizeofBTreeNode( size_t nOrderNum  ) const
-            {     return nSIZEOF_BTREE_NODE + nOrderNum * nSIZEOF_POS_AND_KEY;  }
+            //bool Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
             size_t SizeofBTreeNode() const
             {     return nSIZEOF_BTREE_NODE + m_bhHeader.nOrderNum * nSIZEOF_POS_AND_KEY;  }
-            size_t GetOrderNum()const
+            size_t GetOrderNum() const
             {     return m_bhHeader.nOrderNum;    }
             //void Show();
 
@@ -108,24 +106,30 @@ class CBtree
             BTREE_HEADER m_bhHeader;
             std::vector<BTREE_NODE* >  m_vcNodeBuffer;
             CFileBase* m_pFileOp;
+
+      private:
             void __InitNodeBuffer();
             void __InitHeader(size_t nOrderNum);
-            /*
-            bool __WriteHeader();// if header change;
+            void __ShowNode(BTREE_NODE * pBtreeNode);const
+            void __ShowHeader();const
             bool __WriteNode( BTREE_NODE* pNodeToWrite ) const ;
-            bool __ReadNode( BTREE_NODE* pNodeToWrite , off_t nPos );
-            bool __SplitNode(BTREE_NODE* pParentNode, BTREE_NODE* pChildNode , KEY_TYPE kKey);//normal node spilte
+            bool __ReadNode( BTREE_NODE* pNodeToRead , off_t nPos );
+            bool __WriteHeader(); const// if header change;
             bool __NodeIsLeaf(  BTREE_NODE *pBtreeNode)const
             {     return pBtreeNode->eNodeType == LEAF; }
             bool __NodeIsRoot(BTREE_NODE *pBtreeNode)const
             {     return pBtreeNode->nSelfPos == m_pHeader->nRootPos; }
+
+
+            /*
+
+            bool __SplitNode(BTREE_NODE* pParentNode, BTREE_NODE* pChildNode , KEY_TYPE kKey);//normal node spilte
             bool __LeftRotate( POS_AND_KEY* pArray, size_t nArrayLen,  size_t nRotateNum );
             bool __SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey ,size_t &nIndex , off_t &nPos ) const;
             bool __InsertKeyIntoNode( BTREE_NODE* pNodeToInsert, const POS_AND_KEY &pPosAndKey );
             bool __InsertNodeNonFull(BTREE_NODE* gpBtreeNode[] , size_t nArray,  POS_AND_KEY pPosAndKeyToInsert );
             */
-            void __ShowNode(BTREE_NODE * pBtreeNode);
-            void __ShowHeader();
+
 
             CBtree(const CBtree& other);
             CBtree& operator=(const CBtree& other);

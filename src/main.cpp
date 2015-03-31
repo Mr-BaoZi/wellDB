@@ -6,11 +6,9 @@ int main()
       //wellDB::CBloomFilter::STest();
       char cPath[] = "index.br";
       wellDB::CBtree iBtree;
-      if ( iBtree.Init(cPath, new wellDB::CStdFile(), 64 ) )
+      if ( iBtree.Init(cPath, new wellDB::CStdFile(), 128 ) )
       {
             printf("ok!\n");
       }
-
-
 
 }

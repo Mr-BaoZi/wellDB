@@ -5,12 +5,12 @@ namespace wellDB
 
 tag_BTREE_HEADER::tag_BTREE_HEADER():
 nMagicNum(nMAGIC_NUM) , nOrderNum(nORDER_NUM)   ,nKeyNum (0) , nNodeNum(1)   ,  nHeight(1),
-nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nDEFAULT_POS),
+nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nSIZEOF_BTREE_HEADER),
 nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
 
 tag_BTREE_HEADER::tag_BTREE_HEADER(size_t nOrder):
 nMagicNum(nMAGIC_NUM) , nOrderNum(nOrder)   ,nKeyNum (0) , nNodeNum(1)   ,  nHeight(1),
-nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nDEFAULT_POS),
+nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nSIZEOF_BTREE_HEADER),
 nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
 
 
@@ -108,12 +108,35 @@ void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)
 
 }
 
+bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )const
+{
+      if( ! pNodeToWrite ) return false;
+
+      off_t nPos = pNodeToWrite->nSelfPos;
+      m_pFileOp->Seek(nPos, SEEK_CUR);
+      m_pFileOp->Write( pNodeToWrite ,SizeofBTreeNode()  );
+      return true;
+}
+
+bool CBtree::__ReadNode( BTREE_NODE* pNodeToRead , off_t nPos )
+{
+      if(!pNodeToWrite) return false;
+
+      m_pFileOp->Seek (nPos , SEEK_SET);
+      m_pFileOp->Write( pNodeToRead ,SizeofBTreeNode() );
+
+      if( pNodeToWrite->nSelfPos != nPos) return false;
+      return true;
+}
+
 void CBtree::__ShowHeader()
 {
       BTREE_HEADER *p = &m_bhHeader;
       printf("header: \n");
       printf("oder = %d key = %d node = %d height = %d rootPos = %d startLeafPos = %d\n" , p->nOrderNum , p->nKeyNum ,p->nNodeNum , p->nHeight , p->nRootPos ,p->nStartLeafPos);
 }
+
+
 
 
 /*
@@ -215,28 +238,7 @@ bool  CBtree::__WriteHeader()
 
 }
 
-bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )const
-{
-      if( ! pNodeToWrite ) return false;
-
-      off_t nPos = pNodeToWrite->nSelfPos;
-      lseek(m_fdBTreeFile , nPos, SEEK_SET);
-      write(m_fdBTreeFile,pNodeToWrite, SizeofBTreeNode());
-      //fsync(m_fdBTreeFile);
-      return true;
-}
-
-
-bool CBtree::__ReadNode( BTREE_NODE* pNodeToWrite , off_t nPos )
-{
-      if(!pNodeToWrite) return false;
-
-      lseek(m_fdBTreeFile , nPos ,SEEK_SET);
-      read(m_fdBTreeFile,pNodeToWrite,SizeofBTreeNode());
-
-      if( pNodeToWrite->nSelfPos != nPos) return false;
-      return true;
-}*/
+*/
 
 /*
 bool CBtree::__SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey ,size_t &nIndex ,off_t &nPos )const
