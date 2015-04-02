@@ -71,12 +71,18 @@ inline bool operator != (const POS_AND_KEY &lhs , const POS_AND_KEY &rhs)
 inline bool operator > (const POS_AND_KEY &lhs , const POS_AND_KEY &rhs)
 {     return lhs.kKey > rhs.kKey; }
 inline bool operator < (const POS_AND_KEY &lhs , const POS_AND_KEY &rhs )
-{     return  ! (lhs>rhs); }
+{     return  lhs.kKey < rhs.kKey; }
+inline bool operator <=  (const POS_AND_KEY &lhs , const POS_AND_KEY &rhs )
+{    return  lhs.kKey <= rhs.kKey; }
+inline bool operator >=  (const POS_AND_KEY &lhs , const POS_AND_KEY &rhs )
+{    return  lhs.kKey >= rhs.kKey; }
 
 typedef
 struct tag_BTREE_NODE
 {
       tag_BTREE_NODE(BTREE_NODE_TYPE ,  size_t nBusy , size_t nIdle , off_t nSelf , off_t nNext  );
+      static struct tag_BTREE_NODE* CreateBtreeNode(size_t nSize)
+      {     return ( struct tag_BTREE_NODE*)malloc(nSize) ;}
       BTREE_NODE_TYPE eNodeType;
       size_t nBusyKey;//number of key used
       size_t nIdleKey;//numer of key not used
@@ -86,7 +92,6 @@ struct tag_BTREE_NODE
 }BTREE_NODE, *PBTREE_NODE;
 
 const size_t nSIZEOF_BTREE_NODE = sizeof(struct tag_BTREE_NODE);
-
 
 class CBtree
 {
@@ -100,8 +105,6 @@ class CBtree
             size_t GetOrderNum() const
             {     return m_bhHeader.nOrderNum;    }
             //void Show();
-
-      //protected:
       private:
             BTREE_HEADER m_bhHeader;
             std::vector<BTREE_NODE* >  m_vcNodeBuffer;
@@ -110,27 +113,22 @@ class CBtree
       private:
             void __InitNodeBuffer();
             void __InitHeader(size_t nOrderNum);
-            void __ShowNode(BTREE_NODE * pBtreeNode);const
-            void __ShowHeader();const
-            bool __WriteNode( BTREE_NODE* pNodeToWrite ) const ;
+            void __ShowNode(BTREE_NODE * pBtreeNode) const;
+            void __ShowHeader();
+            bool __WriteNode( BTREE_NODE* pNodeToWrite );
+            bool __WriteHeader() const;// if header change;
             bool __ReadNode( BTREE_NODE* pNodeToRead , off_t nPos );
-            bool __WriteHeader(); const// if header change;
             bool __NodeIsLeaf(  BTREE_NODE *pBtreeNode)const
             {     return pBtreeNode->eNodeType == LEAF; }
             bool __NodeIsRoot(BTREE_NODE *pBtreeNode)const
-            {     return pBtreeNode->nSelfPos == m_pHeader->nRootPos; }
-
-
-            /*
-
-            bool __SplitNode(BTREE_NODE* pParentNode, BTREE_NODE* pChildNode , KEY_TYPE kKey);//normal node spilte
-            bool __LeftRotate( POS_AND_KEY* pArray, size_t nArrayLen,  size_t nRotateNum );
-            bool __SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey ,size_t &nIndex , off_t &nPos ) const;
+            {     return pBtreeNode->nSelfPos == m_bhHeader.nRootPos; }
             bool __InsertKeyIntoNode( BTREE_NODE* pNodeToInsert, const POS_AND_KEY &pPosAndKey );
+            off_t __SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey )const;
+            bool __LeftRotate( BTREE_NODE* pNodeToLeftRotate );
+            bool __SplitNode(BTREE_NODE* pParentNode, BTREE_NODE* pChildNode , KEY_TYPE kKey);
+            /*
             bool __InsertNodeNonFull(BTREE_NODE* gpBtreeNode[] , size_t nArray,  POS_AND_KEY pPosAndKeyToInsert );
             */
-
-
             CBtree(const CBtree& other);
             CBtree& operator=(const CBtree& other);
 };

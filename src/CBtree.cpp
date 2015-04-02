@@ -13,7 +13,6 @@ nMagicNum(nMAGIC_NUM) , nOrderNum(nOrder)   ,nKeyNum (0) , nNodeNum(1)   ,  nHei
 nRootPos (nSIZEOF_BTREE_HEADER),    nStartLeafPos(nSIZEOF_BTREE_HEADER),
 nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
 
-
 tag_BTREE_NODE::tag_BTREE_NODE(BTREE_NODE_TYPE eType ,  size_t nBusy , size_t nIdle , off_t nSelf , off_t nNext  ):
 eNodeType(eType) , nBusyKey(nBusy) , nIdleKey(nIdle) , nSelfPos(nSelf) , nNextPos(nNext)  {     }
 
@@ -25,6 +24,8 @@ CBtree::CBtree():m_pFileOp(NULL)
 CBtree::~CBtree()
 {
       //dtor
+      // code is incomplete , write header must be added!
+
       if(m_pFileOp)
             delete m_pFileOp;
 
@@ -61,6 +62,7 @@ bool CBtree::Init( const char* cPath , CFileBase* pFileOp , size_t nOrderNum)
 void CBtree::__InitHeader(size_t nOrderNum)
 {
       //file is too short
+      if(nOrderNum < 2 ) nOrderNum = 4;
       BTREE_HEADER tempDefaultHeader(nOrderNum);
       BTREE_NODE tempFirstNode( LEAF , 0 , nOrderNum ,nSIZEOF_BTREE_HEADER , nDEFAULT_POS  ) ;
       POS_AND_KEY tempPAK;
@@ -81,7 +83,7 @@ void CBtree::__InitNodeBuffer()
       size_t nNodeByte = SizeofBTreeNode();
       for( size_t i = 0 ; i < m_bhHeader.nHeight ; i++ )
       {
-            BTREE_NODE* temp = (BTREE_NODE* )malloc(nNodeByte);
+            BTREE_NODE* temp = BTREE_NODE::CreateBtreeNode(nNodeByte);
             m_vcNodeBuffer.push_back(temp);
             //read  data of every level in buffer
             off_t nDataPos = nDEFAULT_POS;
@@ -96,90 +98,133 @@ void CBtree::__InitNodeBuffer()
       }
 }
 
-void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)
+void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)const
 {
       BTREE_NODE* p = pBtreeNode;
       printf("node:\n");
-      printf("busy = %d idle = %d selfPos = %d nextPos = %d \n",p->nBusyKey,p->nIdleKey, p->nSelfPos,p->nNextPos);
+      printf("busy = %d idle = %d selfPos = %ld nextPos = %ld \n",p->nBusyKey,p->nIdleKey, p->nSelfPos,p->nNextPos);
       for ( size_t i = 0 ; i < p->nBusyKey ; i++ )
       {
-            printf("%d:  key = %d  pos = %d \n" ,  i ,p->gPosAndKey[i].kKey , p->gPosAndKey[i].nPos );
+            printf("%d:  key = %d  pos = %ld \n" ,  i ,p->gPosAndKey[i].kKey , p->gPosAndKey[i].nPos );
       }
-
 }
 
-bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )const
+bool CBtree::__WriteNode( BTREE_NODE* pNodeToWrite )
 {
       if( ! pNodeToWrite ) return false;
 
       off_t nPos = pNodeToWrite->nSelfPos;
       m_pFileOp->Seek(nPos, SEEK_CUR);
       m_pFileOp->Write( pNodeToWrite ,SizeofBTreeNode()  );
+      __ShowNode(pNodeToWrite);
       return true;
 }
 
 bool CBtree::__ReadNode( BTREE_NODE* pNodeToRead , off_t nPos )
 {
-      if(!pNodeToWrite) return false;
+      if(!pNodeToRead) return false;
 
       m_pFileOp->Seek (nPos , SEEK_SET);
-      m_pFileOp->Write( pNodeToRead ,SizeofBTreeNode() );
+      m_pFileOp->Read( pNodeToRead ,SizeofBTreeNode() );
 
-      if( pNodeToWrite->nSelfPos != nPos) return false;
+      if( pNodeToRead->nSelfPos != nPos) return false;
       return true;
 }
 
 void CBtree::__ShowHeader()
 {
-      BTREE_HEADER *p = &m_bhHeader;
+      BTREE_HEADER* p = &m_bhHeader;
       printf("header: \n");
-      printf("oder = %d key = %d node = %d height = %d rootPos = %d startLeafPos = %d\n" , p->nOrderNum , p->nKeyNum ,p->nNodeNum , p->nHeight , p->nRootPos ,p->nStartLeafPos);
+      printf("oder = %d key = %d node = %d height = %d rootPos = %ld startLeafPos = %ld\n" , p->nOrderNum , p->nKeyNum ,p->nNodeNum , p->nHeight , p->nRootPos ,p->nStartLeafPos);
 }
 
-
-
-
-/*
-CBtree& CBtree::operator=(const CBtree& rhs)
+bool CBtree::__InsertKeyIntoNode( BTREE_NODE* pNodeToInsert, const POS_AND_KEY &pPosAndKey)
 {
-      if (this == &rhs) return *this; // handle self assignment
-      //assignment operator
-      return *this;
+      if ( !pNodeToInsert ||pNodeToInsert->nIdleKey == 0 || pNodeToInsert->nBusyKey == GetOrderNum()   )
+            return false;
+      size_t nIndex = pNodeToInsert->nBusyKey ;
+      for( ;  nIndex > 0 ; nIndex--  )
+      {
+            if( pPosAndKey.kKey > pNodeToInsert->gPosAndKey[nIndex-1].kKey )
+                  break;
+            pNodeToInsert->gPosAndKey[nIndex] = pNodeToInsert->gPosAndKey[nIndex-1];
+      }
+      pNodeToInsert->gPosAndKey[nIndex]  = pPosAndKey;
+      ++pNodeToInsert->nBusyKey;
+       --pNodeToInsert->nIdleKey;
+
+       __WriteNode(pNodeToInsert);
+       return true;
 }
 
+off_t CBtree::__SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey )const
+{
+      if(!pNodeToSearch) return false;
 
+      POS_AND_KEY* pStart = pNodeToSearch->gPosAndKey;
+      POS_AND_KEY* pEnd = pStart + pNodeToSearch->nBusyKey;
+      POS_AND_KEY* pFind = std::upper_bound( pStart, pEnd , kKey )  ;
+
+      if(  pFind == pStart ) return nDEFAULT_POS;
+      if( __NodeIsLeaf(pNodeToSearch) )
+      {
+            if( pFind->kKey != kKey )
+                  return nDEFAULT_POS;
+      }
+      return ( pFind - 1 )->nPos;
+}
+
+bool __LeftRotate( BTREE_NODE* pNodeToLeftRotate )
+{
+      if(  !pNodeToLeftRotate || nRotateNum <0   )
+            return false;
+
+      size_t nArrayNum = pNodeToLeftRotate->nBusyKey + pNodeToLeftRotate->nIdleKey;
+       nRotateNum %= nArrayNum;
+      if( nRotateNum == 0 )
+            return true;
+
+      POS_AND_KEY *pFirstStart = pNodeToLeftRotate->gPosAndKey;
+      POS_AND_KEY *pFirstEnd =pFirstStart + pNodeToLeftRotate->nBusyKey;
+      POS_AND_KEY *pSecondStart = pFirstEnd;
+      POS_AND_KEY *pSecondEnd = pFirstStart + nArrayNum;
+      std::reverse(pFirstStart , pFirstEnd);
+      std::reverse(pSecondStart , pSecondEnd);
+      std::reverse(pFirstStart , pSecondEnd);
+      std::swap( pNodeToLeftRotate->nBusyKey , pNodeToLeftRotate->nIdleKey );
+      return true;
+}
 
 bool  CBtree::__SplitNode( BTREE_NODE* pParentNode, BTREE_NODE* pChildNode ,KEY_TYPE kKey)
 {
       if(  !pParentNode || !pChildNode )  return false;
 
-      size_t nMoveOutNum = (m_pHeader ->nOrderNum)>>1;// /2
       off_t nOldSelfPos= pChildNode->nSelfPos;
       off_t nOldNextPos = pChildNode->nNextPos;
-      off_t nNewNodePos = lseek(m_fdBTreeFile,0,SEEK_END);
+      off_t nNewNodePos = m_pFileOp->Seek(0,SEEK_END);
+
+      size_t nMoveOutNum = (m_pHeader ->nOrderNum)>>1;// /2 , the strategy may be changed
       size_t nLeftRotateNum = GetOrderNum() - nMoveOutNum;
       POS_AND_KEY pPosAndKeyToInsert ;
-
       pPosAndKeyToInsert.nPos = nNewNodePos;// the pos of second node
-      pPosAndKeyToInsert.nKey = pChildNode->gPosAndKey[nLeftRotateNum].nKey;//first entry in second node
+      pPosAndKeyToInsert.kKey = pChildNode->gPosAndKey[nLeftRotateNum].kKey;//first entry in second node
       //change parent node
       __InsertKeyIntoNode(pParentNode,pPosAndKeyToInsert);
       __ShowNode(pParentNode);
-      //search pos of the key in the parent node;
-      size_t nIndex = -1;
-      off_t nKeyPos = nDEFAULT_POS;
-      __SearchPosByKey(pParentNode,kKey,nIndex,nKeyPos);
       //please wait , in turn write disk
+      //But before it ,we must init the node
+      pChildNode->nBusyKey = nLeftRotateNum;
+      pChildNode->nIdleKey = GetOrderNum() - pChildNode ->nBusyKey
+      off_t nKeyPos  = __SearchPosByKey(pParentNode , kKey);
+
       if( nKeyPos == nNewNodePos  )
       {
             ProcessFirstNode:
 
-            pChildNode ->nBusyKey = nLeftRotateNum;
-            pChildNode ->nIdleKey = GetOrderNum() - pChildNode ->nBusyKey;
             pChildNode ->nSelfPos =nOldSelfPos;
             pChildNode ->nNextPos = nNewNodePos;
             __WriteNode(pChildNode);
-            __ShowNode(pChildNode);
+
             if( nKeyPos == nNewNodePos  )
                         goto ProcessSecondNode;
       }
@@ -187,13 +232,13 @@ bool  CBtree::__SplitNode( BTREE_NODE* pParentNode, BTREE_NODE* pChildNode ,KEY_
       {
             ProcessSecondNode:
 
-            pChildNode->nBusyKey = nMoveOutNum;
-            pChildNode->nIdleKey  = GetOrderNum() - pChildNode->nBusyKey;
             pChildNode ->nSelfPos = nNewNodePos;
             pChildNode ->nNextPos = nOldNextPos;
             __LeftRotate(pChildNode->gPosAndKey,GetOrderNum(),nLeftRotateNum);
             __WriteNode(pChildNode);
-            __ShowNode(pChildNode);
+
+            m_pHeader->nNodeNum++;//increase a sibling
+
             if( nKeyPos == nOldSelfPos )
             {
                   __LeftRotate(pChildNode->gPosAndKey,GetOrderNum(),nMoveOutNum);
@@ -202,102 +247,60 @@ bool  CBtree::__SplitNode( BTREE_NODE* pParentNode, BTREE_NODE* pChildNode ,KEY_
       }
       else
       {
-            printf("split false\n");
             return false;
       }
-      //change header content
-     m_pHeader->nNodeNum++;//increase a sibling
-     __WriteHeader();
       return true;
 }
 
-
-bool CBtree::__LeftRotate( POS_AND_KEY* pArray, size_t nArrayLen,  size_t nRotateNum )
+bool CBtree::Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
 {
-      if(  !pArray || nRotateNum <0 || nArrayLen <= 0  )
-            return false;
-      nRotateNum %= nArrayLen;
-      if( nRotateNum == 0 )
-            return true;
+      if( m_pNodeBuffer[0]->nIdleKey == 0 )
+      {
+            //increase a new root node
+            BTREE_NODE tempRootNode( NO_LEAF , 0 , nOrderNum ,m_pFileOp->Seek(0,SEEK_END) , nDEFAULT_POS  ) ;
+            BTREE_NODE* pNewRootNode =  BTREE_NODE::CreateBtreeNode(SizeofBTreeNode());
+            m_vcNodeBuffer.insert(m_vcNodeBuffer.begin() , pNewRootNode );
+            memcpy( m_vcNodeBuffer[0] ,  tempRootNode , nSIZEOF_BTREE_NODE );
 
-      std::reverse(pArray,pArray + nRotateNum);
-      std::reverse(pArray+nRotateNum, pArray + nArrayLen  );
-      std::reverse(pArray,pArray+nArrayLen );
+            POS_AND_KEY pakKey;
+            pakKey.kKey =  m_vcNodeBuffer[1]->gPosAndKey[0].kKey;
+            pakKey.nPos = m_vcNodeBuffer[1]->nSelfPos;
+            __InsertKeyIntoNode(m_vcNodeBuffer[0],pakKey);
 
-      return true;
+            //cahnge root pos
+            m_pHeader->nRootPos =  m_vcNodeBuffer[0]->nSelfPos ;
+            __WriteHeader();
+
+            if ( !__SplitNode(m_vcNodeBuffer[0],m_vcNodeBuffer[1],pPosAndKeyToInsert.nKey) ) return false;
+            return __InsertNodeNonFull( m_pNodeBuffer ,nNODE_BUFFER , pPosAndKeyToInsert );
+      }
+      else
+      {
+            return  __InsertNodeNonFull(m_pNodeBuffer,nNODE_BUFFER,pPosAndKeyToInsert);
+      }
+}
+/*
+CBtree& CBtree::operator=(const CBtree& rhs)
+{
+      if (this == &rhs) return *this; // handle self assignment
+      //assignment operator
+      return *this;
 }
 
 bool  CBtree::__WriteHeader()
 {
-
       if( !m_pHeader) return false;
       lseek(m_fdBTreeFile,0,SEEK_SET);
       write(m_fdBTreeFile,m_pHeader,nSIZEOF_BTREE_HEADER);
       fsync(m_fdBTreeFile);
       return true;
-
 }
 
 */
 
+
+
 /*
-bool CBtree::__SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey ,size_t &nIndex ,off_t &nPos )const
-{
-      if(!pNodeToSearch) return false;
-      if ( __NodeIsLeaf( pNodeToSearch ) )
-      {
-            size_t nIndexTemp = -1;
-            while( ++nIndexTemp < pNodeToSearch->nBusyKey  )
-            {
-                  if(pNodeToSearch->gPosAndKey[nIndexTemp].nKey==kKey)
-                  {
-                        nIndex = nIndexTemp ;
-                        nPos = pNodeToSearch->gPosAndKey[nIndex].nPos;
-                        return true;
-                  }
-             }
-            return false;
-      }
-      else//for non-leaf,we use linear search
-      {
-            if( pNodeToSearch->nBusyKey <= 0  ) return false;
-            if( kKey < pNodeToSearch->gPosAndKey[0].nKey ) return false;
-
-            size_t nIndexTemp =pNodeToSearch->nBusyKey - 1 ;
-            while(  nIndexTemp >= 0  && kKey < pNodeToSearch->gPosAndKey[nIndexTemp].nKey )
-                  nIndexTemp--;
-            nIndex=nIndexTemp;
-            nPos = pNodeToSearch->gPosAndKey[nIndex].nPos;
-            return true;
-      }
-      return false;
-}
-
-bool CBtree::__InsertKeyIntoNode( BTREE_NODE* pNodeToInsert, const POS_AND_KEY &pPosAndKey)
-{
-      if (!pNodeToInsert)      return false;
-      if (pNodeToInsert->nIdleKey == 0 ) return false;
-      if (pNodeToInsert->nBusyKey == GetOrderNum() ) return false;
-
-      size_t nIndex = pNodeToInsert->nBusyKey;
-      for(  ;  nIndex > 0 ; nIndex--  )
-      {
-            if( pPosAndKey.nKey > pNodeToInsert->gPosAndKey[nIndex-1].nKey )
-                  break;
-            pNodeToInsert->gPosAndKey[nIndex] = pNodeToInsert->gPosAndKey[nIndex-1];
-      }
-
-      pNodeToInsert->gPosAndKey[nIndex]  = pPosAndKey;
-      ++pNodeToInsert->nBusyKey;
-       --pNodeToInsert->nIdleKey;
-      if( __NodeIsRoot(pNodeToInsert ))
-      {
-            memcpy(m_pRootNode , pNodeToInsert , SizeofBTreeNode());
-      }
-      //bug: maybe when m_pBtreeNode act as copy of m_pRootNode ,it change ,but it never write back
-       __WriteNode(pNodeToInsert);
-}
-
 bool CBtree::__InsertNodeNonFull(BTREE_NODE* pBtreeNode[] , size_t nArray,  POS_AND_KEY pPosAndKeyToInsert )
 {
       if( !pBtreeNode[0] || !pBtreeNode[1] )    return false;
@@ -342,40 +345,6 @@ bool CBtree::__InsertNodeNonFull(BTREE_NODE* pBtreeNode[] , size_t nArray,  POS_
 */
 
 /*
-bool CBtree::Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
-{
-      memcpy(m_pNodeBuffer[0], m_pRootNode , SizeofBTreeNode());
-      if( m_pNodeBuffer[0]->nIdleKey == 0 )
-      {
-            //we create a new root node
-            //in case of fault , we write node at first ,but it will increase one-time unnecessary write.
-            memcpy(m_pRootNode,&DEFAULT_ROOT_NODE,nSIZEOF_BTREE_NODE );
-            m_pRootNode->eType = NO_LEAF;
-            m_pRootNode->nSelfPos = lseek(m_fdBTreeFile , 0, SEEK_END);
-            m_pRootNode->gPosAndKey[0].nKey = m_pNodeBuffer[0]->gPosAndKey[0].nKey;
-            m_pRootNode->gPosAndKey[0].nPos = m_pNodeBuffer[0]->nSelfPos;
-            m_pRootNode->nBusyKey ++;
-            m_pRootNode->nIdleKey-- ;
-            __WriteNode(m_pRootNode);
-
-             //increase a new root node
-            ++m_pHeader->nHeight;
-            ++m_pHeader->nNodeNum;
-            m_pHeader->nRootPos =  m_pRootNode->nSelfPos ;
-            __WriteHeader();
-
-            __ShowNode(m_pRootNode);
-
-            if ( !__SplitNode(m_pRootNode,m_pNodeBuffer[0],pPosAndKeyToInsert.nKey) ) return false;
-            return __InsertNodeNonFull( m_pNodeBuffer ,nNODE_BUFFER , pPosAndKeyToInsert );
-      }
-      else
-      {
-            return  __InsertNodeNonFull(m_pNodeBuffer,nNODE_BUFFER,pPosAndKeyToInsert);
-      }
-}*/
-
-/*
 void CBtree::Show()
 {
       BTREE_NODE *temp = ( BTREE_NODE *)malloc(SizeofBTreeNode());
@@ -402,7 +371,5 @@ void CBtree::Show()
 }
 
 */
-
-
 
 }
