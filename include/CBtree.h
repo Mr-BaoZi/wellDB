@@ -91,6 +91,13 @@ struct tag_BTREE_NODE
       POS_AND_KEY gPosAndKey[0];
 }BTREE_NODE, *PBTREE_NODE;
 
+typedef
+struct tag_NODE_BUFFER
+{
+      bool isDirty ;
+      BTREE_NODE * pBuffer;
+}NODE_BUFFER;
+
 const size_t nSIZEOF_BTREE_NODE = sizeof(struct tag_BTREE_NODE);
 
 class CBtree
@@ -107,8 +114,7 @@ class CBtree
             //void Show();
       private:
             BTREE_HEADER m_bhHeader;
-            std::vector<BTREE_NODE* >  m_vcNodeBuffer;
-            BTREE_NODE* m_pNextNodeBuffer;
+            std::vector< NODE_BUFFER >  m_vcNodeBuffer;
             CFileBase* m_pFileOp;
 
       private:
@@ -127,8 +133,9 @@ class CBtree
             off_t __SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey )const;
             bool __LeftRotate( BTREE_NODE* pNodeToLeftRotate );
             bool __SplitNode(BTREE_NODE* pParentNode, BTREE_NODE* pChildNode , KEY_TYPE kKey);
-            bool __InsertNodeNonFull(BTREE_NODE* gpBtreeNode[] , size_t nArray,  POS_AND_KEY pPosAndKeyToInsert );
-            size_t __SearchKeyInBuffer(KEY_TYPE kKey); //find insert point  ,return index in the buffer
+            bool __InsertNodeNonFull(std::vector<BTREE_NODE*> &vcNodeBuffer , size_t nLevel , POS_AND_KEY pPosAndKeyToInsert );
+            void __RegularWrite();
+            void __WriteDirtyNode(const NODE_BUFFER &nbBuffer);
             CBtree(const CBtree& other);
             CBtree& operator=(const CBtree& other);
 };
