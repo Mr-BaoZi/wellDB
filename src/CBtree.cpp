@@ -16,7 +16,7 @@ nFreeBlockNum(0),  nFirstFreeBlockPos (nDEFAULT_POS)  {     }
 tag_BTREE_NODE::tag_BTREE_NODE(BTREE_NODE_TYPE eType ,  size_t nBusy , size_t nIdle , off_t nSelf , off_t nNext  ):
 eNodeType(eType) , nBusyKey(nBusy) , nIdleKey(nIdle) , nSelfPos(nSelf) , nNextPos(nNext)  {     }
 
-CBtree::CBtree():m_pFileOp(NULL)
+CBtree::CBtree():m_pFileOp(NULL),m_pNextNodeBuffer(NULL)
 {
 
 }
@@ -34,6 +34,9 @@ CBtree::~CBtree()
             if( m_vcNodeBuffer[i]  )
                   free(m_vcNodeBuffer[i] );
       }
+
+      if(m_pNextNodeBuffer)
+            free(m_pNextNodeBuffer);
 }
 
 CBtree::CBtree(const CBtree& other)
@@ -62,7 +65,7 @@ bool CBtree::Init( const char* cPath , CFileBase* pFileOp , size_t nOrderNum)
 void CBtree::__InitHeader(size_t nOrderNum)
 {
       //file is too short
-      if(nOrderNum < 2 ) nOrderNum = 4;
+      if(nOrderNum < 4 ) nOrderNum = 4;
       BTREE_HEADER tempDefaultHeader(nOrderNum);
       BTREE_NODE tempFirstNode( LEAF , 0 , nOrderNum ,nSIZEOF_BTREE_HEADER , nDEFAULT_POS  ) ;
       POS_AND_KEY tempPAK;
@@ -81,6 +84,7 @@ void CBtree::__InitHeader(size_t nOrderNum)
 void CBtree::__InitNodeBuffer()
 {
       size_t nNodeByte = SizeofBTreeNode();
+      m_pNextNodeBuffer = BTREE_NODE::CreateBtreeNode(nNodeByte);
       for( size_t i = 0 ; i < m_bhHeader.nHeight ; i++ )
       {
             BTREE_NODE* temp = BTREE_NODE::CreateBtreeNode(nNodeByte);
@@ -168,7 +172,7 @@ off_t CBtree::__SearchPosByKey (BTREE_NODE* pNodeToSearch ,KEY_TYPE kKey )const
       if(  pFind == pStart ) return nDEFAULT_POS;
       if( __NodeIsLeaf(pNodeToSearch) )
       {
-            if( pFind->kKey != kKey )
+            if((pFind - 1)->kKey != kKey )
                   return nDEFAULT_POS;
       }
       return ( pFind - 1 )->nPos;
@@ -279,6 +283,63 @@ bool CBtree::Insert( const POS_AND_KEY &pPosAndKeyToInsert  )
             return  __InsertNodeNonFull(m_pNodeBuffer,nNODE_BUFFER,pPosAndKeyToInsert);
       }
 }
+
+/*size_t CBtree::__SearchKeyInBuffer(KEY_TYPE kKey)
+{
+      int nLevel = m_bhHeader.nHeight - 1;
+      if( nLevel == 0 ) return 0; // if the onty buffer is leaf
+
+      for(int i = nLevel -1 ; i <= 0 ; i-- )
+      {
+            size_t nPos = __SearchPosByKey(m_vcNodeBuffer[i] , kKey );
+            if ( nDEFAULT_POS != nPos  )
+            {
+                  //if find the last pos of this node ,we need to judege the first key of next node   (if exist)
+                  // as s result ,we may be need a extra space for this node
+
+                  if( nPos == temp->gPosAndKey[ temp->nBusyKey -1 ].nPos  )
+                  {
+
+                  }
+
+                  if( m_vcNodeBuffer[i]->nIle > 0 )
+                        break;
+            }
+      }
+}*/
+
+bool CBtree::__InsertNodeNonFull(  std::vector<BTREE_NODE*> &vcNodeBuffer ,  POS_AND_KEY pPosAndKeyToInsert )
+{
+      //
+      if ( __NodeIsLeaf(pBtreeNode[0]) )
+      {
+            //if ( __SearchPosByKey( pBtreeNode[0] ,pPosAndKeyToInsert.nKey,nIndex,nPos) )  return false;
+            if(__SearchPosByKey())
+            __InsertKeyIntoNode(pBtreeNode[0] ,pPosAndKeyToInsert);//maybe need to add the pos of entry
+            ++m_pHeader->nKeyNum;
+            __WriteHeader();
+      }
+      else
+      {
+            if ( !__SearchPosByKey(pBtreeNode[0] ,pPosAndKeyToInsert.nKey ,nIndex , nPos) )
+            {
+                  pBtreeNode[0]->gPosAndKey[0].nKey = pPosAndKeyToInsert.nKey;
+                  nPos = pBtreeNode[0]->gPosAndKey[0].nPos;
+                  __WriteNode(pBtreeNode[0]);
+            }
+            __ReadNode(pBtreeNode[1],nPos);
+
+            if(pBtreeNode[1]->nIdleKey == 0)
+            {
+                  __SplitNode(pBtreeNode[0],pBtreeNode[1], pPosAndKeyToInsert.nKey);
+            }
+            std::swap(pBtreeNode[0], pBtreeNode[1]);
+            __InsertNodeNonFull( pBtreeNode , nArray , pPosAndKeyToInsert );
+      }
+      __ShowNode(pBtreeNode[0]);
+      return true;
+}
+
 /*
 CBtree& CBtree::operator=(const CBtree& rhs)
 {
@@ -300,49 +361,7 @@ bool  CBtree::__WriteHeader()
 
 
 
-/*
-bool CBtree::__InsertNodeNonFull(BTREE_NODE* pBtreeNode[] , size_t nArray,  POS_AND_KEY pPosAndKeyToInsert )
-{
-      if( !pBtreeNode[0] || !pBtreeNode[1] )    return false;
-      //pos 0 put parent node , pos 1 put child node ,
-      //before recursing ,we drop parent ,as s result ,we exchange the point of both of them
-      if ( __NodeIsLeaf(pBtreeNode[0]) )
-      {
-            size_t nIndex = -1;
-            off_t nPos = nDEFAULT_POS;
-            if ( __SearchPosByKey( pBtreeNode[0] ,pPosAndKeyToInsert.nKey,nIndex,nPos) )  return false;
 
-            __InsertKeyIntoNode(pBtreeNode[0] ,pPosAndKeyToInsert);//maybe need to add the pos of entry
-            ++m_pHeader->nKeyNum;
-            __WriteHeader();
-            if( __NodeIsRoot(pBtreeNode[0] ))
-            {
-                  memcpy(m_pRootNode , pBtreeNode[0] , SizeofBTreeNode());
-            }
-      }
-      else
-      {
-            size_t nIndex = -1 ;
-            off_t nPos =nDEFAULT_POS;
-            if ( !__SearchPosByKey(pBtreeNode[0] ,pPosAndKeyToInsert.nKey ,nIndex , nPos) )
-            {
-                  pBtreeNode[0]->gPosAndKey[0].nKey = pPosAndKeyToInsert.nKey;
-                  nPos = pBtreeNode[0]->gPosAndKey[0].nPos;
-                  __WriteNode(pBtreeNode[0]);
-            }
-            __ReadNode(pBtreeNode[1],nPos);
-
-            if(pBtreeNode[1]->nIdleKey == 0)
-            {
-                  __SplitNode(pBtreeNode[0],pBtreeNode[1], pPosAndKeyToInsert.nKey);
-            }
-            std::swap(pBtreeNode[0], pBtreeNode[1]);
-            __InsertNodeNonFull( pBtreeNode , nArray , pPosAndKeyToInsert );
-      }
-      __ShowNode(pBtreeNode[0]);
-      return true;
-}
-*/
 
 /*
 void CBtree::Show()
