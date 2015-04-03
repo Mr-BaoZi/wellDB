@@ -24,8 +24,7 @@ CBtree::CBtree():m_pFileOp(NULL),m_pNextNodeBuffer(NULL)
 CBtree::~CBtree()
 {
       //dtor
-      // code is incomplete , write header must be added!
-
+      // code is incomplete , write header must be added
       if(m_pFileOp)
             delete m_pFileOp;
 
@@ -34,9 +33,6 @@ CBtree::~CBtree()
             if( m_vcNodeBuffer[i]  )
                   free(m_vcNodeBuffer[i] );
       }
-
-      if(m_pNextNodeBuffer)
-            free(m_pNextNodeBuffer);
 }
 
 CBtree::CBtree(const CBtree& other)
@@ -58,7 +54,7 @@ bool CBtree::Init( const char* cPath , CFileBase* pFileOp , size_t nOrderNum)
       if( m_bhHeader.nMagicNum != nMAGIC_NUM )  return false;
 
       __InitNodeBuffer();
-      __ShowNode(m_vcNodeBuffer[0]);
+      __ShowNode(m_vcNodeBuffer[0].pBuffer);
       return true;
 }
 
@@ -114,7 +110,10 @@ void CBtree::__RegularWrite()
 void CBtree::__WriteDirtyNode(const NODE_BUFFER &nbBuffer)
 {
       if( nbBuffer.isDirty == true )
+      {
             __WriteNode( nbBuffer.pBuffer );
+            nbBuffer.isDirty = false;
+      }
 }
 
 void CBtree::__ShowNode(BTREE_NODE * pBtreeNode)const
