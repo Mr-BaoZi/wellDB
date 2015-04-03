@@ -82,7 +82,8 @@ size_t CStdFile::Write( const void *pvBuf , size_t nCount )
 
 off_t CStdFile::Seek(off_t nOffset , int nFromWhere)
 {
-      return fseek(m_f , nOffset, nFromWhere);
+      fseek(m_f , nOffset, nFromWhere);
+      return  ftell(m_f);
 }
 
 /*
